@@ -1,0 +1,91 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const SECRET_KEY = 'your-secret-key'; // Replace with a secure secret key in production
+
+const posts = [];
+const users = [];
+
+// Middleware to parse JSON requests
+app.use(bodyParser.json());
+
+// Authentication middleware
+function authenticateToken(req, res, next) {
+  const token = req.header('Authorization');
+  if (!token) return res.sendStatus(401); // Unauthorized
+
+  jwt.verify(token, SECRET_KEY, (err, user) => {
+    if (err) return res.sendStatus(403); // Forbidden
+    req.user = user;
+    next();
+  });
+}
+
+// Create a new user
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const hashedPassword = await bcrypt.hash(req.body.password, 10);
+    const user = { username: req.body.username, password: hashedPassword };
+    users.push(user);
+    res.status(201).send('User registered successfully');
+  } catch {
+    res.status(500).send('Error registering user');
+  }
+});
+
+// User login
+app.post('/api/auth/login', async (req, res) => {
+  const user = users.find((u) => u.username === req.body.username);
+  if (user == null) return res.sendStatus(401); // Unauthorized
+
+  try {
+    if (await bcrypt.compare(req.body.password, user.password)) {
+      const token = jwt.sign({ username: user.username }, SECRET_KEY);
+      res.json({ token });
+    } else {
+      res.sendStatus(401); // Unauthorized
+    }
+  } catch {
+    res.status(500).send('Error during login');
+  }
+});
+
+// Blog post CRUD operations
+app.get('/api/posts', (req, res) => {
+  res.json(posts);
+});
+
+app.get('/api/posts/:postId', (req, res) => {
+  const post = posts.find((p) => p.id === req.params.postId);
+  if (!post) return res.sendStatus(404); // Not Found
+  res.json(post);
+});
+
+app.post('/api/posts', authenticateToken, (req, res) => {
+  const post = { id: Date.now().toString(), title: req.body.title, content: req.body.content };
+  posts.push(post);
+  res.status(201).json(post);
+});
+
+app.put('/api/posts/:postId', authenticateToken, (req, res) => {
+  const post = posts.find((p) => p.id === req.params.postId);
+  if (!post) return res.sendStatus(404); // Not Found
+  post.title = req.body.title;
+  post.content = req.body.content;
+  res.json(post);
+});
+
+app.delete('/api/posts/:postId', authenticateToken, (req, res) => {
+  const index = posts.findIndex((p) => p.id === req.params.postId);
+  if (index === -1) return res.sendStatus(404); // Not Found
+  posts.splice(index, 1);
+  res.sendStatus(204); // No Content
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
